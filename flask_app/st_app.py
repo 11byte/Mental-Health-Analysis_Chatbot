@@ -148,7 +148,7 @@ if st.session_state.current_question >= len(question_columns) and st.button("✨
 
     # Gemini AI Report
     st.subheader("🧠 Gemini-Based Psychological Analysis")
-    genai.configure(api_key="AIzaSyBva2qqvNun5SYuXAqI-pmGmot_n5U4MH0")
+    genai.configure(api_key="GEMINI_API_KEY")
     model_gemini = genai.GenerativeModel("gemini-1.5-pro-latest")
     user_text = "\n".join([f"{k}: {v}" for k, v in user_responses.items()])
     prompt = f"Analyze the following user responses and provide psychological insight:\n{user_text}\nPredicted outcomes: {result}"
