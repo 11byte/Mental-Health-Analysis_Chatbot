@@ -93,15 +93,10 @@ target_columns = [
 # Question columns
 question_columns = [col for col in df.columns if col not in target_columns]
 
-# Encode categorical variables
-label_encoders = {}
-for column in df.select_dtypes(include=['object']).columns:
-    if column not in target_columns:
-        le = LabelEncoder()
-        df[column] = le.fit_transform(df[column])
-        label_encoders[column] = le
 
-# Feature scaling
+# One-hot encode categorical variables
+df = pd.get_dummies(df, drop_first=True)
+
 scaler = StandardScaler()
 X = df.drop(columns=target_columns)
 y = df[target_columns]
@@ -116,14 +111,14 @@ model_choice = st.sidebar.selectbox("Choose a Machine Learning Model", ["Logisti
 
 # Train model
 if model_choice == "Logistic Regression":
-    base_model = LogisticRegression()
+    base_model = LogisticRegression(class_weight="balanced")
     model = MultiOutputClassifier(base_model)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
     y_test_eval = y_test
 
 elif model_choice == "Random Forest":
-    base_model = RandomForestClassifier()
+    base_model = RandomForestClassifier(class_weight="balanced")
     model = MultiOutputClassifier(base_model)
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
@@ -157,6 +152,7 @@ for i, col in enumerate(target_columns):
     st.sidebar.markdown(f"Accuracy: {acc:.2f}")
     st.sidebar.markdown(f"Precision: {prec:.2f}")
     st.sidebar.markdown(f"Recall: {rec:.2f}")
+    # Consider using F1-score or MAE for better insight on Likert scale
 
 # Streamlit UI styling
 st.markdown("""
@@ -288,7 +284,7 @@ if st.session_state.current_question >= len(question_columns) and st.button("✨
 
     # Gemini AI Analysis
     st.subheader("📜 Detailed Mental Report")
-    genai.configure(api_key="GEMIN_API_KEY")
+    genai.configure(api_key="AIzaSyBva2qqvNun5SYuXAqI-pmGmot_n5U4MH0")
     model_gemini = genai.GenerativeModel("gemini-1.5-pro-latest")
     user_responses_text = "\n".join([f"{q}: {user_responses[q]}" for q in question_columns if q in user_responses])
     prompt = f"Analyze the following user responses and generate a psychological assessment:\n{user_responses_text}\nPredictions: {result}"
