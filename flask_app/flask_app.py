@@ -1,0 +1,140 @@
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.multioutput import MultiOutputClassifier
+from sklearn.impute import SimpleImputer
+import logging
+import traceback
+
+app = Flask(__name__)
+CORS(app)
+
+# Load and preprocess dataset
+try:
+    df = pd.read_csv('socialMediaImpact.csv')
+    imputer = SimpleImputer(strategy='most_frequent')  # Handle missing values
+    df.iloc[:, :] = imputer.fit_transform(df)
+except Exception as e:
+    logging.error(f"Error loading dataset: {str(e)}")
+    raise SystemExit("Failed to load dataset.")
+
+# Define target columns
+target_columns = [
+    "18. How often do you feel depressed or down?",
+    "19. On a scale of 1 to 5, how frequently does your interest in daily activities fluctuate?",
+    "20. On a scale of 1 to 5, how often do you face issues regarding sleep?"
+]
+
+# Extract question columns
+question_columns = [col for col in df.columns if col not in target_columns]
+
+# Encode categorical variables
+label_encoders = {}
+for column in df.select_dtypes(include=['object']).columns:
+    if column not in target_columns:
+        le = LabelEncoder()
+        df[column] = le.fit_transform(df[column])
+        label_encoders[column] = le
+
+# Feature scaling
+scaler = StandardScaler()
+X = df.drop(columns=target_columns)
+y = df[target_columns]
+X_scaled = scaler.fit_transform(X)
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+# Train multi-output model
+base_model = LogisticRegression()
+model = MultiOutputClassifier(base_model)
+model.fit(X_train, y_train)
+
+# Logging configuration
+logging.basicConfig(level=logging.DEBUG)
+
+@app.route('/')
+def health_check():
+    return jsonify({'status': 'ok'})
+
+@app.route('/start', methods=['POST'])
+def start_chat():
+    return jsonify({
+        'question': question_columns[0],
+        'total_questions': len(question_columns)
+    })
+
+@app.route('/chat', methods=['POST'])
+def chat():
+    try:
+        data = request.json
+        if not data or 'responses' not in data:
+            return jsonify({'error': 'Invalid request data', 'message': 'Responses list is required'}), 400
+
+        user_responses = data['responses']
+        if not isinstance(user_responses, list):
+            return jsonify({'error': 'Invalid format', 'message': 'Responses should be a list'}), 400
+
+        if len(user_responses) < len(question_columns):
+            next_question_index = len(user_responses)
+            return jsonify({
+                'question': question_columns[next_question_index],
+                'index': next_question_index
+            })
+
+        # Ensure all features are present
+        while len(user_responses) < len(question_columns):
+            user_responses.append("Unknown")  # Fill missing responses
+
+        # Prepare user input for model prediction
+        user_input = []
+        for i, q in enumerate(question_columns):
+            response = user_responses[i]
+
+            # Encode categorical responses if needed
+            if q in label_encoders:
+                le = label_encoders[q]
+                encoded_value = le.transform([response])[0] if response in le.classes_ else 0
+            else:
+                try:
+                    encoded_value = float(response)
+                except ValueError:
+                    encoded_value = 0
+
+            user_input.append(encoded_value)
+
+        user_input = np.array(user_input).reshape(1, -1)
+
+        # Debug: Check feature count
+        logging.debug(f"User input shape before imputation: {user_input.shape}")
+        logging.debug(f"Expected shape: ({1}, {X.shape[1]})")
+
+        if user_input.shape[1] != X.shape[1]:  # Feature count mismatch check
+            return jsonify({
+                'error': 'Feature mismatch',
+                'message': f'Expected {X.shape[1]} features, but got {user_input.shape[1]}'
+            }), 400
+
+        # Ensure no NaN values exist
+        user_input_imputed = imputer.transform(user_input)
+        user_input_scaled = scaler.transform(user_input_imputed)
+        predictions = model.predict(user_input_scaled)
+
+        result = dict(zip(target_columns, predictions[0]))
+
+        return jsonify({
+            'response': 'Assessment complete!',
+            'predictions': result,
+            'complete': True
+        })
+
+    except Exception as e:
+        logging.error(f"Error in chat: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
